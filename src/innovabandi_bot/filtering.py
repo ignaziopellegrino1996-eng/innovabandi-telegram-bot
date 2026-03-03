@@ -7,9 +7,27 @@ from .config import FilteringConfig
 
 
 def _norm(s: str) -> str:
-    s = s.lower()
+    s = (s or "").lower()
     s = s.replace("\u00a0", " ")
     return re.sub(r"\s+", " ", s).strip()
+
+
+_CALL_LIKE_WORDS = [
+    "bando",
+    "avviso",
+    "manifestazione di interesse",
+    "invito",
+    "contribut",
+    "finanziament",
+    "agevolazion",
+    "voucher",
+    "misura",
+]
+
+
+def looks_like_call(title: str, summary: str) -> bool:
+    t = _norm(f"{title} {summary}")
+    return any(w in t for w in _CALL_LIKE_WORDS)
 
 
 @dataclass(frozen=True)
