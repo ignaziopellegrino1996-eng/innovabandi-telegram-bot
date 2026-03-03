@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import html
 import io
 import logging
 import re
@@ -19,8 +18,14 @@ from .http_client import HttpClient
 
 log = logging.getLogger("sources")
 
-
 _UTM_PARAMS = {"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"}
+
+# parole utili per estrarre snippet “centrato” su innovazione
+_SNIPPET_HINTS = [
+    "innovazione", "digitale", "digitalizzazione", "trasformazione digitale", "transizione digitale",
+    "ricerca", "sviluppo", "r&s", "ai", "intelligenza artificiale", "cybersecurity", "cloud",
+    "pmi", "startup", "cooperativ", "energia", "circolare"
+]
 
 
 def canonicalize_url(url: str) -> str:
@@ -92,6 +97,7 @@ def _make_item(
     base_meta = {"source_name": source.name}
     if meta:
         base_meta.update(meta)
+
     return Item(
         source_id=source.id,
         title=_shorten((title or "").strip() or source.name, 200),
@@ -104,6 +110,21 @@ def _make_item(
         external_id=external_id,
         meta=base_meta,
     )
+
+
+# ---------- RSS ----------
+def _extract_deadline_from_text(text: str) -> Optional[datetime]:
+    if not text:
+        return None
+    low = text.lower()
+    for key in ["scadenza", "entro", "termine", "presentazione", "domande entro"]:
+        pos = low.find(key)
+        if pos != -1:
+            window = text[max(0, pos - 120): pos + 240]
+            dt = _extract_first_date_like(window)
+            if dt:
+                return dt
+    return None
 
 
 async def fetch_rss(source: Source, httpc: HttpClient) -> list[Item]:
@@ -120,20 +141,137 @@ async def fetch_rss(source: Source, httpc: HttpClient) -> list[Item]:
         elif getattr(e, "updated", None):
             published_dt = _try_parse_date(str(e.updated))
 
-        deadline_dt = _extract_first_date_like(summary)
+        deadline_dt = _extract_deadline_from_text(summary)
         ext_id = getattr(e, "id", None)
-        items.append(_make_item(source, title, link, published_dt, deadline_dt, summary, external_id=ext_id))
+
+        items.append(
+            _make_item(
+                source,
+                title=title,
+                url=link,
+                published=published_dt,
+                deadline=deadline_dt,
+                summary=summary,
+                external_id=ext_id,
+                meta={"detail_fetchable": True},
+            )
+        )
     return items
 
 
+# ---------- HTML ----------
 def _soup(html_text: str) -> BeautifulSoup:
     return BeautifulSoup(html_text, "lxml")
+
+
+def _is_probably_pdf(url: str) -> bool:
+    u = (url or "").lower()
+    return u.endswith(".pdf") or ".pdf?" in u
+
+
+def _extract_main_text(soup: BeautifulSoup) -> str:
+    # prova selettori “forti”
+    for sel in ["main", "article", "#main", ".main", ".content", ".node__content", ".region-content"]:
+        node = soup.select_one(sel)
+        if node:
+            for bad in node.select("script, style, nav, header, footer, form"):
+                bad.decompose()
+            txt = node.get_text(" ", strip=True)
+            if txt and len(txt) > 200:
+                return txt
+
+    # fallback: body
+    body = soup.body
+    if body:
+        for bad in body.select("script, style, nav, header, footer, form"):
+            bad.decompose()
+        return body.get_text(" ", strip=True)
+
+    return soup.get_text(" ", strip=True)
+
+
+def _extract_published_deadline_from_page_text(text: str) -> tuple[Optional[datetime], Optional[datetime]]:
+    pub = None
+    ddl = None
+    if not text:
+        return None, None
+
+    low = text.lower()
+
+    # published hints
+    for key in ["pubblicato il", "data pubblicazione", "pubblicazione", "posted on", "published on"]:
+        pos = low.find(key)
+        if pos != -1:
+            window = text[max(0, pos - 80): pos + 160]
+            pub = _extract_first_date_like(window) or _try_parse_date(window)
+            if pub:
+                break
+
+    # deadline hints
+    ddl = _extract_deadline_from_text(text)
+    return pub, ddl
+
+
+def _best_snippet(text: str, max_len: int = 250) -> str:
+    if not text:
+        return ""
+    t = re.sub(r"\s+", " ", text).strip()
+    low = t.lower()
+    best_pos = None
+    for k in _SNIPPET_HINTS:
+        pos = low.find(k.lower())
+        if pos != -1:
+            best_pos = pos
+            break
+    if best_pos is None:
+        return _shorten(t, max_len)
+    start = max(0, best_pos - 140)
+    end = min(len(t), best_pos + 140)
+    return _shorten(t[start:end], max_len)
+
+
+async def enrich_item_from_detail(source: Source, httpc: HttpClient, item: Item) -> Item:
+    """
+    Legge la pagina di dettaglio e migliora:
+    - summary (snippet “centrato”)
+    - published / deadline (se rilevabili)
+    """
+    if _is_probably_pdf(item.url):
+        return item
+
+    html_text = await httpc.get_text(item.url)
+    soup = _soup(html_text)
+
+    # published (se c'è un <time datetime=...>)
+    pub = None
+    time_tag = soup.select_one("time[datetime]")
+    if time_tag and time_tag.get("datetime"):
+        pub = _try_parse_date(time_tag.get("datetime") or "")
+
+    page_text = _extract_main_text(soup)
+    pub2, ddl2 = _extract_published_deadline_from_page_text(page_text)
+
+    published_dt = pub or pub2
+    deadline_dt = ddl2
+
+    new_summary = _best_snippet(page_text, 250)
+
+    return _make_item(
+        source,
+        title=item.title,
+        url=item.url,
+        published=published_dt or (_try_parse_date(item.published) if item.published else None),
+        deadline=deadline_dt or (_try_parse_date(item.deadline) if item.deadline else None),
+        summary=new_summary or item.summary,
+        external_id=item.external_id,
+        meta={**(item.meta or {}), "detail_enriched": True, "detail_fetchable": True},
+    )
 
 
 def parse_generic_links(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
     out = []
     for a in soup.select("a[href]"):
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
         text = a.get_text(" ", strip=True)
         if not href or not text:
             continue
@@ -151,79 +289,110 @@ def parse_generic_links(source: Source, soup: BeautifulSoup) -> list[tuple[str, 
             continue
         seen.add(cu)
         uniq.append((t, u, c))
-    return uniq
+    return uniq[:60]
+
+
+def parse_sicilia_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
+    """
+    Pagina bandi Sicilia: cerchiamo link “titolo bando” in modo più mirato.
+    """
+    candidates = []
+
+    # selettori tipici Drupal/views
+    selectors = [
+        ".view-content .views-row .views-field-title a[href]",
+        ".view-content .views-row h3 a[href]",
+        ".view-content .views-row a[href]",
+    ]
+    for sel in selectors:
+        for a in soup.select(sel):
+            href = (a.get("href") or "").strip()
+            text = a.get_text(" ", strip=True)
+            if not href or not text or len(text) < 8:
+                continue
+            url = urljoin(source.url, href)
+            # filtra link utili
+            path = urlparse(url).path.lower()
+            if "bandi" not in path and "avvisi" not in path and "servizi-informativi" not in path and "/node/" not in path:
+                continue
+            ctx = a.parent.get_text(" ", strip=True) if a.parent else text
+            candidates.append((text, url, ctx))
+
+    # fallback: generic
+    if not candidates:
+        candidates = parse_generic_links(source, soup)
+
+    # dedup
+    seen = set()
+    uniq = []
+    for t, u, c in candidates:
+        cu = canonicalize_url(u)
+        if cu in seen:
+            continue
+        seen.add(cu)
+        uniq.append((t, u, c))
+    return uniq[:60]
+
+
+def parse_er_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
+    candidates = []
+    selectors = [
+        "main a[href]",
+        "article a[href]",
+        ".view-content a[href]",
+    ]
+    for sel in selectors:
+        for a in soup.select(sel):
+            href = (a.get("href") or "").strip()
+            text = a.get_text(" ", strip=True)
+            if not href or not text or len(text) < 8:
+                continue
+            url = urljoin(source.url, href)
+            if "bandi.regione.emilia-romagna.it" not in url:
+                continue
+            candidates.append((text, url, a.parent.get_text(" ", strip=True) if a.parent else text))
+
+    if not candidates:
+        candidates = parse_generic_links(source, soup)
+
+    seen = set()
+    uniq = []
+    for t, u, c in candidates:
+        cu = canonicalize_url(u)
+        if cu in seen:
+            continue
+        seen.add(cu)
+        uniq.append((t, u, c))
+    return uniq[:60]
 
 
 def parse_invitalia_incentivi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
     out = []
     for a in soup.select("a[href]"):
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
         text = a.get_text(" ", strip=True)
-        if not text or not href:
+        if not text or not href or len(text) < 6:
             continue
         if "/per-le-imprese/" not in href and "/incentivi" not in href and "/strumenti" not in href:
             continue
-        if len(text) < 6:
-            continue
         url = urljoin(source.url, href)
         ctx = a.parent.get_text(" ", strip=True) if a.parent else text
         out.append((text, url, ctx))
-    return out
-
-
-def parse_er_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
-    out = []
-    for a in soup.select("a[href]"):
-        href = a.get("href") or ""
-        text = a.get_text(" ", strip=True)
-        if not href or not text:
-            continue
-        if "bandi.regione.emilia-romagna.it" not in href and not href.startswith("/"):
-            continue
-        if len(text) < 8:
-            continue
-        url = urljoin(source.url, href)
-        ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-        out.append((text, url, ctx))
-    return out
-
-
-def parse_sicilia_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
-    out = []
-    for a in soup.select("a[href]"):
-        href = a.get("href") or ""
-        text = a.get_text(" ", strip=True)
-        if not href or not text:
-            continue
-        if "regione.sicilia.it" not in href and not href.startswith("/"):
-            continue
-        if len(text) < 8:
-            continue
-        url = urljoin(source.url, href)
-        ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-        out.append((text, url, ctx))
-    return out
-
-
-def parse_opencoesione(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
-    return parse_generic_links(source, soup)
+    return out[:60]
 
 
 def parse_interreg(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
     out = []
     for a in soup.select("a[href]"):
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
         text = a.get_text(" ", strip=True)
-        if not href or not text:
+        if not href or not text or len(text) < 8:
             continue
         if "/calls-for-projects/" not in href and not href.startswith("/calls-for-projects/"):
             continue
-        if len(text) < 8:
-            continue
         url = urljoin(source.url, href)
-        ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-        out.append((text, url, ctx))
-    return out
+        out.append((text, url, a.parent.get_text(" ", strip=True) if a.parent else text))
+    return out[:60]
 
 
 def parse_eic(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
@@ -231,7 +400,7 @@ def parse_eic(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]
     for a in soup.select("a[href]"):
         href = (a.get("href") or "").strip()
         text = a.get_text(" ", strip=True)
-        if not href or not text:
+        if not href or not text or len(text) < 8:
             continue
         h = href.lower()
         t = text.lower()
@@ -239,63 +408,46 @@ def parse_eic(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]
             continue
         if "funding-opportunit" not in h and "accelerator" not in h and "challenge" not in h and "call" not in h:
             continue
-        if len(text) < 8:
-            continue
         url = urljoin(source.url, href)
-        ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-        out.append((text, url, ctx))
-    return out
-
-
-def parse_pico_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
-    out = []
-    for a in soup.select("a[href]"):
-        href = a.get("href") or ""
-        text = a.get_text(" ", strip=True)
-        if not href:
-            continue
-        if "download" in (text or "").lower() or "avviso" in text.lower() or "bando" in text.lower():
-            url = urljoin(source.url, href)
-            ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-            title = text if "download" not in (text or "").lower() else (a.find_previous("a").get_text(" ", strip=True) if a.find_previous("a") else text)
-            out.append((title, url, ctx))
-    return out
+        out.append((text, url, a.parent.get_text(" ", strip=True) if a.parent else text))
+    return out[:60]
 
 
 def parse_pico_tag(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
     out = []
     for a in soup.select("a[href]"):
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
         text = a.get_text(" ", strip=True)
-        if not href or not text:
+        if not href or not text or len(text) < 8:
             continue
         if "/tag/bandi/" in href:
             continue
-        if "pico.coop" not in href and not href.startswith("/"):
-            continue
-        if len(text) < 8:
-            continue
         url = urljoin(source.url, href)
-        ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-        out.append((text, url, ctx))
-    return out
+        if "pico.coop" not in url:
+            continue
+        out.append((text, url, a.parent.get_text(" ", strip=True) if a.parent else text))
+    return out[:60]
+
+
+def parse_pico_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
+    # pagina bandi e avvisi: usa link “articolo”
+    return parse_pico_tag(source, soup)
 
 
 def parse_frd_bandi(source: Source, soup: BeautifulSoup) -> list[tuple[str, str, str]]:
     out = []
     for a in soup.select("a[href]"):
-        href = a.get("href") or ""
+        href = (a.get("href") or "").strip()
         text = a.get_text(" ", strip=True)
-        if not href or not text:
-            continue
-        if "/bandi/" not in href and "bando" not in text.lower():
-            continue
-        if len(text) < 6:
+        if not href or not text or len(text) < 6:
             continue
         url = urljoin(source.url, href)
-        ctx = a.parent.get_text(" ", strip=True) if a.parent else text
-        out.append((text, url, ctx))
-    return out
+        if "fondorepubblicadigitale.it" not in url:
+            continue
+        if "/bandi/" not in url and "bando" not in text.lower():
+            continue
+        out.append((text, url, a.parent.get_text(" ", strip=True) if a.parent else text))
+    return out[:60]
 
 
 _HTML_PARSERS: dict[str, Callable[[Source, BeautifulSoup], list[tuple[str, str, str]]]] = {
@@ -303,7 +455,7 @@ _HTML_PARSERS: dict[str, Callable[[Source, BeautifulSoup], list[tuple[str, str, 
     "invitalia_incentivi": parse_invitalia_incentivi,
     "er_bandi": parse_er_bandi,
     "sicilia_bandi": parse_sicilia_bandi,
-    "opencoesione": parse_opencoesione,
+    "opencoesione": parse_generic_links,
     "interreg": parse_interreg,
     "eic": parse_eic,
     "pico_bandi": parse_pico_bandi,
@@ -322,14 +474,23 @@ async def fetch_html(source: Source, httpc: HttpClient) -> list[Item]:
     items: list[Item] = []
     for title, url, ctx in triples:
         pub = _extract_first_date_like(ctx)
-        ddl = None
-        if re.search(r"\b(scadenza|entro|termine)\b", (ctx or "").lower()):
-            ddl = _extract_first_date_like(ctx) or None
+        ddl = _extract_deadline_from_text(ctx)
         summary = ctx if ctx else title
-        items.append(_make_item(source, title, url, pub, ddl, summary))
+        items.append(
+            _make_item(
+                source,
+                title=title,
+                url=url,
+                published=pub,
+                deadline=ddl,
+                summary=summary,
+                meta={"detail_fetchable": (not _is_probably_pdf(url))},
+            )
+        )
     return items
 
 
+# ---------- GURS PDF (lasciato com'è: continuerà a funzionare, ma può essere lento) ----------
 _BANDO_KEYWORDS = [
     "AVVISO PUBBLICO",
     "BANDO",
@@ -373,16 +534,7 @@ def _extract_gurs_published(text: str) -> Optional[datetime]:
 
 
 def _extract_deadline_from_pdf(text: str) -> Optional[datetime]:
-    t = text or ""
-    low = t.lower()
-    for key in ["scadenza", "entro", "termine", "presentazione delle domande"]:
-        pos = low.find(key)
-        if pos != -1:
-            window = t[max(0, pos - 120) : pos + 220]
-            dt = _extract_first_date_like(window)
-            if dt:
-                return dt
-    return None
+    return _extract_deadline_from_text(text)
 
 
 def _gurs_candidate_filenames(issue: int, year: int) -> list[str]:
@@ -465,7 +617,18 @@ async def fetch_gurs_pdf(source: Source, httpc: HttpClient, now: datetime, last_
             title = f"GURS: {kw.title()} (estratto)"
             summary = _shorten(snip, 250)
             ext_id = f"{pdf_url}#hit{i}"
-            items.append(_make_item(source, title, pdf_url, published_dt, deadline_dt, summary, external_id=ext_id))
+            items.append(
+                _make_item(
+                    source,
+                    title=title,
+                    url=pdf_url,
+                    published=published_dt,
+                    deadline=deadline_dt,
+                    summary=summary,
+                    external_id=ext_id,
+                    meta={"detail_fetchable": False},
+                )
+            )
 
     return items
 
