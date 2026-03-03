@@ -1,0 +1,39 @@
+name: weekly
+
+on:
+  schedule:
+    # Due cron UTC per gestire DST (CET/CEST). Il guard interno evita doppie esecuzioni.
+    - cron: "5 6 * * 1"
+    - cron: "5 7 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore SQLite state cache
+        uses: actions/cache@v4
+        with:
+          path: data/state.sqlite3
+          key: state-sqlite-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            state-sqlite-${{ runner.os }}-${{ github.ref_name }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run weekly once (guarded by weekday+local time)
+        run: |
+          mkdir -p data
+          python run.py --weekly-once --config config.example.yaml --sources sources.yaml --expect-weekday mon --expect-local-time 08:05 --log-level INFO
