@@ -7,11 +7,29 @@ from dataclasses import dataclass
 from typing import Optional
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential_jitter
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential_jitter,
+    retry_if_exception,
+)
 
 from .config import HttpConfig
 
 log = logging.getLogger("http")
+
+
+def _should_retry(exc: Exception) -> bool:
+    """
+    Retry SOLO per:
+    - errori di rete (RequestError)
+    - status 429 e 5xx (temporanei)
+    NO retry su 403/404 ecc.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code in (429, 500, 502, 503, 504)
+    return isinstance(exc, httpx.RequestError)
 
 
 @dataclass
@@ -59,6 +77,7 @@ class HttpClient:
 
     def _retry(self):
         return retry(
+            retry=retry_if_exception(_should_retry),
             stop=stop_after_attempt(self.cfg.max_retries),
             wait=wait_exponential_jitter(initial=self.cfg.backoff_base_s, max=8.0),
             reraise=True,
@@ -75,6 +94,7 @@ class HttpClient:
                 r = await self.client.get(url)
                 r.raise_for_status()
                 return r.text
+
         return await _do()
 
     async def get_bytes(self, url: str, max_bytes: int = 30_000_000) -> bytes:
@@ -87,6 +107,7 @@ class HttpClient:
                 if len(data) > max_bytes:
                     raise ValueError(f"File troppo grande: {len(data)} bytes > {max_bytes}")
                 return data
+
         return await _do()
 
     async def head_ok(self, url: str) -> bool:
@@ -97,4 +118,5 @@ class HttpClient:
                 if r.status_code == 405:
                     r = await self.client.get(url, headers={"Range": "bytes=0-0"})
                 return 200 <= r.status_code < 300
+
         return await _do()
