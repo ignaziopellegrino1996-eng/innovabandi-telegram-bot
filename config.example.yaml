@@ -1,0 +1,60 @@
+telegram:
+  token: "${TELEGRAM_BOT_TOKEN}"
+  chat_ids:
+    - "${TELEGRAM_CHAT_ID}"
+  weekly_allowlist_user_ids: []
+
+schedule:
+  timezone: "Europe/Rome"
+  daily_time: "08:00"
+  weekly_day: "mon"
+  weekly_time: "08:05"
+
+db:
+  path: "data/state.sqlite3"
+
+http:
+  timeout_s: 25
+  max_retries: 3
+  backoff_base_s: 0.6
+  concurrency: 6
+  rate_limit_rps: 1.2
+  user_agent: "InnovabandiBot/1.0 (+https://github.com/your-org/innovabandi-telegram-bot)"
+
+filtering:
+  min_score: 5
+  include_keywords:
+    - "innovazione"
+    - "digital"
+    - "digitale"
+    - "ricerca"
+    - "sviluppo"
+    - "R&S"
+    - "transizione 4.0"
+    - "transizione 5.0"
+    - "intelligenza artificiale"
+    - "AI"
+    - "cybersecurity"
+    - "cloud"
+    - "energia"
+    - "green"
+    - "economia circolare"
+    - "startup"
+    - "PMI"
+    - "cooperativ"
+  exclude_keywords:
+    - "concorso"
+    - "graduatoria"
+    - "mobilità"
+    - "selezione personale"
+    - "incarico"
+    - "borsa di studio"
+    - "assegno di ricerca"
+
+weekly:
+  lookback_days: 7
+  due_soon_days: 10
+  max_items: 40
+
+modes:
+  default_mode: "full"
