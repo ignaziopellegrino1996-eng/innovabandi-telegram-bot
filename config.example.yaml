@@ -19,29 +19,57 @@ http:
   backoff_base_s: 0.6
   concurrency: 6
   rate_limit_rps: 1.2
-  user_agent: "InnovabandiBot/1.0 (+https://github.com/your-org/innovabandi-telegram-bot)"
+  user_agent: "InnovabandiBot/1.1 (+https://github.com/your-org/innovabandi-telegram-bot)"
 
 filtering:
-  min_score: 5
+  # ↓ abbassata: aiuta Sicilia (titoli spesso generici)
+  min_score: 3
+
+  # Se un link sembra un bando/avviso ma non passa lo score,
+  # proviamo a leggere la pagina di dettaglio e ricalcolare lo score.
+  prefetch_detail_if_score_at_least: 1
+  max_detail_fetch_per_source: 15
+
+  # Evita voci vecchissime (es. 2022) se non hanno scadenza futura
+  max_published_age_days: 365
+
   include_keywords:
+    # innovazione/digitale
     - "innovazione"
-    - "digital"
-    - "digitale"
+    - "innovazione tecnologica"
+    - "digitalizzazione"
+    - "trasformazione digitale"
+    - "transizione digitale"
+    - "transizione 4.0"
+    - "transizione 5.0"
     - "ricerca"
     - "sviluppo"
     - "R&S"
-    - "transizione 4.0"
-    - "transizione 5.0"
-    - "intelligenza artificiale"
     - "AI"
+    - "intelligenza artificiale"
     - "cybersecurity"
     - "cloud"
+    - "ICT"
+    - "data center"
+    - "big data"
+    - "blockchain"
+    - "robotica"
+    - "automazione"
     - "energia"
+    - "efficienza energetica"
     - "green"
     - "economia circolare"
-    - "startup"
+    - "hub"
+    - "DIH"
+    - "digital innovation hub"
+
+    # target
     - "PMI"
+    - "startup"
+    - "microimpresa"
+    - "mpmi"
     - "cooperativ"
+
   exclude_keywords:
     - "concorso"
     - "graduatoria"
@@ -50,6 +78,7 @@ filtering:
     - "incarico"
     - "borsa di studio"
     - "assegno di ricerca"
+    - "avviso di selezione"
 
 weekly:
   lookback_days: 7
