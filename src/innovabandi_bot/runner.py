@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Optional
@@ -16,6 +17,13 @@ from .models import Mode, Source, Item
 from .sources import fetch_items_for_source, stable_item_id
 
 log = logging.getLogger("runner")
+
+# Timeout per evitare blocchi su una singola fonte (soprattutto su GitHub Actions)
+_SOURCE_TIMEOUTS_S: dict[str, int] = {
+    "rss": 50,
+    "html": 70,
+    "gurs_pdf": 180,  # GURS può essere lento: qui 3 minuti max, poi skip e si manda comunque l'esito
+}
 
 
 def _pick_sources(all_sources: list[Source], mode: Mode) -> list[Source]:
@@ -55,26 +63,40 @@ async def run_daily_check_once(
     started_at = datetime.utcnow().isoformat()
 
     sources = _pick_sources(all_sources, mode)
+
     per_source: dict[str, tuple[bool, int, Optional[str]]] = {}
     errors: dict[str, str] = {}
     total_candidates = 0
-
     new_items: list[Item] = []
+
+    # (opzionale futuro) stato GURS; per ora None
     gurs_last_seen_issue = None
 
     for s in sources:
+        timeout_s = _SOURCE_TIMEOUTS_S.get(s.kind, 70)
         try:
-            fetched = await fetch_items_for_source(s, httpc, now, gurs_last_seen_issue=gurs_last_seen_issue)
+            fetched = await asyncio.wait_for(
+                fetch_items_for_source(s, httpc, now, gurs_last_seen_issue=gurs_last_seen_issue),
+                timeout=timeout_s,
+            )
             per_source[s.id] = (True, len(fetched), None)
             total_candidates += len(fetched)
 
             for it in fetched:
                 sr = score_item(cfg.filtering, it.title, it.summary, it.url)
-                it2 = Item(**{**it.__dict__, "relevance_score": sr.score, "meta": {**(it.meta or {}), "matched": sr.matched}})
+                it2 = Item(
+                    **{
+                        **it.__dict__,
+                        "relevance_score": sr.score,
+                        "meta": {**(it.meta or {}), "matched": sr.matched},
+                    }
+                )
                 if not sr.ok:
                     continue
 
                 item_id = stable_item_id(it2.source_id, it2.canonical_url, it2.external_id)
+
+                # se già consegnato a questa chat, non reinviare mai
                 if await db.has_delivered(chat_id, item_id):
                     continue
 
@@ -85,27 +107,39 @@ async def run_daily_check_once(
                 await db.mark_delivered(chat_id, item_id, first_seen)
                 new_items.append(it2)
 
+        except asyncio.TimeoutError:
+            err = f"Timeout fonte dopo {timeout_s}s"
+            errors[s.id] = err
+            per_source[s.id] = (False, 0, err)
+            log.warning("Source timeout %s (%ss)", s.id, timeout_s)
+
         except Exception as e:
             err = str(e)
             errors[s.id] = err
             per_source[s.id] = (False, 0, err)
+            # non blocca: passa alla fonte successiva
             log.exception("Source failed %s", s.id)
 
+    # INVIO: sempre, anche se alcune fonti falliscono/timeout
     sent_msgs = 0
     if new_items:
         def _key(x: Item) -> str:
             return x.published or "9999-12-31T00:00:00"
+
         new_items.sort(key=_key, reverse=True)
 
-        header = f"🆕 <b>Nuovi bandi/avvisi (modalità: {mode.value})</b>\nTotale nuovi: <b>{len(new_items)}</b>"
+        header = (
+            f"🆕 <b>Nuovi bandi/avvisi (modalità: {mode.value})</b>\n"
+            f"Totale nuovi: <b>{len(new_items)}</b>"
+        )
         await bot.send_message(chat_id=chat_id, text=header, parse_mode=ParseMode.HTML)
         sent_msgs = await _send_items(bot, chat_id, cfg, new_items)
     else:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=f"✅ Nessuna novità oggi (modalità: <b>{mode.value}</b>).",
-            parse_mode=ParseMode.HTML,
-        )
+        # messaggio “sempre” così sai che il run è finito
+        txt = f"✅ Nessuna novità oggi (modalità: <b>{mode.value}</b>)."
+        if errors:
+            txt += f"\n⚠️ Fonti con problemi: <b>{len(errors)}</b> (vedi /status)"
+        await bot.send_message(chat_id=chat_id, text=txt, parse_mode=ParseMode.HTML)
         sent_msgs = 1
 
     finished_at = datetime.utcnow().isoformat()
@@ -179,8 +213,12 @@ async def run_weekly_report_once(
                 d = "non indicata"
             lines.append(f"• {t} — <b>{d}</b> — <a href=\"{url}\">link</a>")
 
-    text = "\n".join(lines)
-    await bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML", disable_web_page_preview=True)
+    await bot.send_message(
+        chat_id=chat_id,
+        text="\n".join(lines),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
     finished_at = datetime.utcnow().isoformat()
     await db.mark_run(
