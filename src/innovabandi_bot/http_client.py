@@ -7,12 +7,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import httpx
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_exponential_jitter,
-    retry_if_exception,
-)
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception
 
 from .config import HttpConfig
 
@@ -23,7 +18,7 @@ def _should_retry(exc: Exception) -> bool:
     """
     Retry SOLO per:
     - errori di rete (RequestError)
-    - status 429 e 5xx (temporanei)
+    - status 429 e 5xx
     NO retry su 403/404 ecc.
     """
     if isinstance(exc, httpx.HTTPStatusError):
