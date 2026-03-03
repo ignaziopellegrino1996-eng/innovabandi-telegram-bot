@@ -12,7 +12,6 @@ from zoneinfo import ZoneInfo
 
 from .models import Mode, Source
 
-
 _env_pattern = re.compile(r"^\$\{([A-Z0-9_]+)\}$")
 
 
@@ -78,6 +77,9 @@ class HttpConfig:
 @dataclass(frozen=True)
 class FilteringConfig:
     min_score: int
+    prefetch_detail_if_score_at_least: int
+    max_detail_fetch_per_source: int
+    max_published_age_days: int
     include_keywords: list[str]
     exclude_keywords: list[str]
 
@@ -163,10 +165,13 @@ def load_config(path: Path) -> AppConfig:
             backoff_base_s=float(http.get("backoff_base_s", 0.6)),
             concurrency=int(http.get("concurrency", 6)),
             rate_limit_rps=float(http.get("rate_limit_rps", 1.2)),
-            user_agent=str(http.get("user_agent", "InnovabandiBot/1.0")),
+            user_agent=str(http.get("user_agent", "InnovabandiBot/1.1")),
         ),
         filtering=FilteringConfig(
-            min_score=int(flt.get("min_score", 5)),
+            min_score=int(flt.get("min_score", 3)),
+            prefetch_detail_if_score_at_least=int(flt.get("prefetch_detail_if_score_at_least", 1)),
+            max_detail_fetch_per_source=int(flt.get("max_detail_fetch_per_source", 15)),
+            max_published_age_days=int(flt.get("max_published_age_days", 365)),
             include_keywords=[str(x) for x in (flt.get("include_keywords") or [])],
             exclude_keywords=[str(x) for x in (flt.get("exclude_keywords") or [])],
         ),
