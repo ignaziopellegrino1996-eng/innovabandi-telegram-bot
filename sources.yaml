@@ -1,0 +1,155 @@
+sources:
+  # A) EUROPA
+  - id: eu_funding_tenders
+    name: "EU Funding & Tenders Portal (Grant Tenders RSS)"
+    level: "UE"
+    kind: "rss"
+    url: "https://ec.europa.eu/info/funding-tenders/opportunities/data/referenceData/grantTenders-rss.xml"
+    enabled: true
+    modes: ["full"]
+
+  - id: eic_home
+    name: "European Innovation Council (EIC) - Home"
+    level: "UE"
+    kind: "html"
+    url: "https://eic.ec.europa.eu/index_en"
+    parser: "eic"
+    enabled: true
+    modes: ["full"]
+
+  - id: eic_accelerator
+    name: "EIC Accelerator"
+    level: "UE"
+    kind: "html"
+    url: "https://eic.ec.europa.eu/eic-funding-opportunities/eic-accelerator_en"
+    parser: "eic"
+    enabled: true
+    modes: ["full"]
+
+  - id: eic_accelerator_challenges_2026
+    name: "EIC Accelerator Challenges 2026"
+    level: "UE"
+    kind: "html"
+    url: "https://eic.ec.europa.eu/eic-funding-opportunities/eic-accelerator/eic-accelerator-challenges-2026_en"
+    parser: "eic"
+    enabled: true
+    modes: ["full"]
+
+  - id: opencoesione_2127
+    name: "OpenCoesione - Opportunità 2021-2027"
+    level: "Italia"
+    kind: "html"
+    url: "https://opencoesione.gov.it/en/opportunita_2021_2027/"
+    parser: "opencoesione"
+    enabled: true
+    modes: ["full"]
+
+  - id: interreg_calls
+    name: "Interreg - Calls for projects"
+    level: "UE"
+    kind: "html"
+    url: "https://interreg.eu/calls-for-projects/"
+    parser: "interreg"
+    enabled: true
+    modes: ["full"]
+
+  # B) ITALIA (NAZIONALE)
+  - id: mimit_incentivi_rss
+    name: "MIMIT - Aggiornamenti sugli incentivi (RSS)"
+    level: "Italia"
+    kind: "rss"
+    url: "https://www.mimit.gov.it/index.php/it/incentivi-aggiornamenti?format=feed&type=rss"
+    enabled: true
+    modes: ["full"]
+
+  - id: mimit_notizie_rss
+    name: "MIMIT - Notizie (RSS)"
+    level: "Italia"
+    kind: "rss"
+    url: "https://www.mimit.gov.it/index.php/it/notizie-stampa?format=feed&type=rss"
+    enabled: true
+    modes: ["full"]
+
+  - id: invitalia_incentivi
+    name: "Invitalia - Incentivi e strumenti"
+    level: "Italia"
+    kind: "html"
+    url: "https://www.invitalia.it/per-le-imprese/incentivi-e-strumenti"
+    parser: "invitalia_incentivi"
+    enabled: true
+    modes: ["full"]
+
+  # C) EMILIA-ROMAGNA
+  - id: er_finanziamenti_rss
+    name: "Imprese ER - Finanziamenti aperti (RSS)"
+    level: "Emilia-Romagna"
+    kind: "rss"
+    url: "https://imprese.regione.emilia-romagna.it/finanziamenti-aperti/RSS"
+    enabled: true
+    modes: ["full", "regioni"]
+
+  - id: er_bandi_aperti
+    name: "Regione ER - Finanziamenti e opportunità aperti"
+    level: "Emilia-Romagna"
+    kind: "html"
+    url: "https://bandi.regione.emilia-romagna.it/finanziamenti-e-opportunita-aperti"
+    parser: "er_bandi"
+    enabled: true
+    modes: ["full", "regioni"]
+
+  # D) SICILIA
+  - id: sicilia_bandi_non_scaduti
+    name: "Regione Siciliana - Bandi non scaduti"
+    level: "Sicilia"
+    kind: "html"
+    url: "https://www.regione.sicilia.it/istituzioni/servizi-informativi/bandi?f%5B0%5D=expired%3A0"
+    parser: "sicilia_bandi"
+    enabled: true
+    modes: ["full", "regioni"]
+
+  - id: gurs_pdf_2026
+    name: "GURS (portale 2026) - PDF discovery + keyword scan"
+    level: "Sicilia"
+    kind: "gurs_pdf"
+    url: "https://www.gursonline.regione.sicilia.it/wp-content/uploads/"
+    enabled: true
+    modes: ["full", "regioni"]
+
+  # E) FONDAZIONE PICO (OBBLIGATORIA)
+  - id: pico_bandi_avvisi
+    name: "Fondazione PICO - Bandi e avvisi"
+    level: "Mirata"
+    kind: "html"
+    url: "https://pico.coop/bandi-e-avvisi/"
+    parser: "pico_bandi"
+    enabled: true
+    modes: ["full", "regioni"]
+
+  - id: pico_tag_bandi
+    name: "Fondazione PICO - Tag bandi"
+    level: "Mirata"
+    kind: "html"
+    url: "https://pico.coop/tag/bandi/"
+    parser: "pico_tag"
+    enabled: true
+    modes: ["full", "regioni"]
+
+  # FONTI MIRATE (opzionali, default ON) - estendibili
+  - id: ted_simap_rss_info
+    name: "TED/SIMAP - RSS feed (pagina informativa)"
+    level: "UE"
+    kind: "html"
+    url: "https://ted.europa.eu/it/simap/rss-feed"
+    parser: "generic_links"
+    enabled: true
+    modes: ["full"]
+
+  # EXTRA (pulita e coerente con digitale)
+  - id: fondo_repubblica_digitale_bandi
+    name: "Fondo per la Repubblica Digitale - Bandi"
+    level: "Italia"
+    kind: "html"
+    url: "https://www.fondorepubblicadigitale.it/pagina-bandi/"
+    parser: "frd_bandi"
+    enabled: true
+    modes: ["full"]
