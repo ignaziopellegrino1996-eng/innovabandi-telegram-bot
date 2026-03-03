@@ -37,12 +37,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ✅ TEST IMMEDIATO: se questo ping NON arriva, il problema è token/chat_id/permessi
+      - name: Telegram ping (MANUAL)
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          echo "Sending ping to TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=Ping da GitHub Actions ✅" \
+            -d "disable_notification=false"
+          echo ""
+
+      # ✅ MANUALE: quando clicchi "Run workflow", esegue sempre (senza guard orario)
       - name: Run daily once (MANUAL - send always)
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           mkdir -p data
           python run.py --once --config config.example.yaml --sources sources.yaml --log-level INFO
 
+      # ✅ SCHEDULE: invia solo alle 08:00 Europe/Rome (guard)
       - name: Run daily once (SCHEDULED - guarded by local time)
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
