@@ -123,8 +123,8 @@ async def run_daily_check_once(
                 )
 
                 # 2) se non passa ma sembra un bando e abbiamo poche info: prova dettaglio (solo HTML)
-                if (not sr.ok) and s.kind == "html":
-                    if sr.score >= cfg.filtering.prefetch_detail_if_score_at_least and looks_like_call(it.title, it.summary):
+                if not sr.ok:
+                    if s.kind == "html" and sr.score >= cfg.filtering.prefetch_detail_if_score_at_least and looks_like_call(it.title, it.summary):
                         if detail_fetches < cfg.filtering.max_detail_fetch_per_source and (it.meta or {}).get("detail_fetchable", True):
                             detail_fetches += 1
                             try:

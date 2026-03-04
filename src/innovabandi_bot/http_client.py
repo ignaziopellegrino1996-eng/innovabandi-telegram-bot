@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass
 from typing import Optional
 
 import httpx
@@ -27,11 +26,11 @@ def _should_retry(exc: Exception) -> bool:
     return isinstance(exc, httpx.RequestError)
 
 
-@dataclass
 class _RateLimiter:
-    rps: float
-    _lock: asyncio.Lock = asyncio.Lock()
-    _last: float = 0.0
+    def __init__(self, rps: float) -> None:
+        self.rps = rps
+        self._lock = asyncio.Lock()
+        self._last: float = 0.0
 
     async def wait(self) -> None:
         if self.rps <= 0:
