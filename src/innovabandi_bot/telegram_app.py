@@ -193,7 +193,7 @@ async def run_bot_polling(cfg: AppConfig, sources: list, db_path: Path) -> None:
     tz = ZoneInfo(cfg.schedule.timezone)
     dh, dm = _parse_hhmm(cfg.schedule.daily_time)
     wh, wm = _parse_hhmm(cfg.schedule.weekly_time)
-    weekday_map = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 3, "fri": 5, "sat": 6}
+    weekday_map = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
     wday = weekday_map.get(cfg.schedule.weekly_day.lower(), 1)
 
     app.job_queue.run_daily(_job_daily, time=dtime(dh, dm, tzinfo=tz), name="daily")

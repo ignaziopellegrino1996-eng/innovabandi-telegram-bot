@@ -122,7 +122,9 @@ class AppConfig:
                 return False
         if expect_local_time:
             hh, mm = expect_local_time.split(":")
-            if now.hour != int(hh) or now.minute != int(mm):
+            expected_minutes = int(hh) * 60 + int(mm)
+            actual_minutes = now.hour * 60 + now.minute
+            if abs(actual_minutes - expected_minutes) > 10:
                 return False
         return True
 
