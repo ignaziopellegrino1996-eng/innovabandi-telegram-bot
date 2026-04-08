@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -201,15 +201,17 @@ class Database:
                 meta_json,
             ),
         )
+        await self.conn.commit()
 
     async def mark_delivered(self, chat_id: int, item_id: str, delivered_at: str) -> None:
         await self.conn.execute(
             "INSERT OR IGNORE INTO delivered_items(chat_id, item_id, delivered_at) VALUES(?,?,?)",
             (chat_id, item_id, delivered_at),
         )
+        await self.conn.commit()
 
     async def list_items_for_weekly(self, chat_id: int, lookback_days: int) -> list[aiosqlite.Row]:
-        since = (datetime.utcnow() - timedelta(days=lookback_days)).isoformat()
+        since = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=lookback_days)).isoformat()
         cur = await self.conn.execute(
             """
             SELECT s.*

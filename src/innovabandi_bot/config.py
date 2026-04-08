@@ -124,10 +124,10 @@ class AppConfig:
             hh, mm = expect_local_time.split(":")
             expected_minute = int(hh) * 60 + int(mm)
             actual_minute = now.hour * 60 + now.minute
-            # GitHub Actions cron può partire con qualche minuto di ritardo;
-            # accettiamo una finestra di tolleranza di 15 minuti.
+            # GitHub Actions cron può partire con qualche minuto di ritardo o anticipo;
+            # accettiamo una finestra [-2, +15] minuti per coprire entrambi i casi.
             diff = actual_minute - expected_minute
-            if diff < 0 or diff > 15:
+            if diff < -2 or diff > 15:
                 return False
         return True
 

@@ -110,7 +110,9 @@ class HttpClient:
             async with (await self._bounded()):
                 r = await self.client.head(url)
                 if r.status_code == 405:
-                    r = await self.client.get(url, headers={"Range": "bytes=0-0"})
+                    # Server non supporta HEAD: usa stream GET con Range per non scaricare il file intero
+                    async with self.client.stream("GET", url, headers={"Range": "bytes=0-0"}) as rs:
+                        return 200 <= rs.status_code < 300
                 return 200 <= r.status_code < 300
 
         return await _do()

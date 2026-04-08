@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from telegram import Bot
@@ -14,7 +15,7 @@ from .filtering import score_item, looks_like_call
 from .formatting import format_item, chunk_messages
 from .http_client import HttpClient
 from .models import Mode, Source, Item
-from .sources import fetch_items_for_source, stable_item_id, enrich_item_from_detail
+from .sources import fetch_items_for_source, stable_item_id, enrich_item_from_detail, gurs_issue_from_url
 
 log = logging.getLogger("runner")
 
@@ -88,7 +89,7 @@ async def run_daily_check_once(
 
     bot = Bot(token=cfg.telegram.token_resolved())
     now_local = datetime.now(cfg.tz()).replace(tzinfo=None)
-    started_at = datetime.utcnow().isoformat()
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     sources = _pick_sources(all_sources, mode)
 
@@ -111,15 +112,21 @@ async def run_daily_check_once(
             per_source[s.id] = (True, len(fetched), None)
             total_candidates += len(fetched)
 
+            # Aggiorna il cursore GURS per evitare di re-probe gli stessi fascicoli
+            if s.kind == "gurs_pdf":
+                for _it in fetched:
+                    _url = (_it.external_id or "").split("#")[0] or _it.url
+                    _issue = gurs_issue_from_url(_url)
+                    if _issue and (gurs_last_seen_issue is None or _issue > gurs_last_seen_issue):
+                        gurs_last_seen_issue = _issue
+
             for it in fetched:
                 # 1) score iniziale
                 sr = score_item(cfg.filtering, it.title, it.summary, it.url)
-                it2 = Item(
-                    **{
-                        **it.__dict__,
-                        "relevance_score": sr.score,
-                        "meta": {**(it.meta or {}), "matched": sr.matched},
-                    }
+                it2 = dataclasses.replace(
+                    it,
+                    relevance_score=sr.score,
+                    meta={**(it.meta or {}), "matched": sr.matched},
                 )
 
                 # 2) se non passa ma sembra un bando e abbiamo poche info: prova dettaglio (solo HTML)
@@ -133,12 +140,10 @@ async def run_daily_check_once(
                                     timeout=_DETAIL_TIMEOUT_S,
                                 )
                                 sr2 = score_item(cfg.filtering, enriched.title, enriched.summary, enriched.url)
-                                it2 = Item(
-                                    **{
-                                        **enriched.__dict__,
-                                        "relevance_score": sr2.score,
-                                        "meta": {**(enriched.meta or {}), "matched": sr2.matched},
-                                    }
+                                it2 = dataclasses.replace(
+                                    enriched,
+                                    relevance_score=sr2.score,
+                                    meta={**(enriched.meta or {}), "matched": sr2.matched},
                                 )
                                 if not sr2.ok:
                                     continue
@@ -159,7 +164,7 @@ async def run_daily_check_once(
                 if await db.has_delivered(chat_id, item_id):
                     continue
 
-                first_seen = datetime.utcnow().isoformat()
+                first_seen = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
                 if not await db.has_seen(item_id):
                     await db.upsert_seen_item(item_id, it2, first_seen)
 
@@ -198,7 +203,7 @@ async def run_daily_check_once(
         await bot.send_message(chat_id=chat_id, text=txt, parse_mode=ParseMode.HTML)
         sent_msgs = 1
 
-    finished_at = datetime.utcnow().isoformat()
+    finished_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     error_summary = "; ".join([f"{k}: {v}" for k, v in errors.items()])[:2000]
 
     await db.mark_run(
@@ -228,7 +233,7 @@ async def run_weekly_report_once(
     mode = mode_override or settings.mode
 
     bot = Bot(token=cfg.telegram.token_resolved())
-    started_at = datetime.utcnow().isoformat()
+    started_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
     rows = await db.list_items_for_weekly(chat_id, cfg.weekly.lookback_days)
 
@@ -271,7 +276,7 @@ async def run_weekly_report_once(
 
     await bot.send_message(chat_id=chat_id, text="\n".join(lines), parse_mode="HTML", disable_web_page_preview=True)
 
-    finished_at = datetime.utcnow().isoformat()
+    finished_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     await db.mark_run(
         kind="weekly",
         chat_id=chat_id,

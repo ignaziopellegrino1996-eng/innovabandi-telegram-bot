@@ -34,7 +34,8 @@ async def _is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 
 async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.effective_chat
+    if not update.effective_chat:
+        return
     cfg: AppConfig = context.application.bot_data["cfg"]
     srcs = context.application.bot_data["sources"]
     db_path: Path = context.application.bot_data["db_path"]
@@ -47,7 +48,8 @@ async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.effective_chat
+    if not update.effective_chat:
+        return
     cfg: AppConfig = context.application.bot_data["cfg"]
     db_path: Path = context.application.bot_data["db_path"]
 
@@ -83,7 +85,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_sources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.effective_chat
+    if not update.effective_chat:
+        return
     cfg: AppConfig = context.application.bot_data["cfg"]
     srcs = context.application.bot_data["sources"]
     db_path: Path = context.application.bot_data["db_path"]
@@ -101,7 +104,8 @@ async def cmd_sources(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def cmd_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.effective_chat
+    if not update.effective_chat:
+        return
     if not await _is_admin(update, context):
         await update.message.reply_text("Solo admin del gruppo possono cambiare modalità.")
         return
@@ -127,7 +131,8 @@ async def cmd_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    assert update.effective_chat
+    if not update.effective_chat:
+        return
     cfg: AppConfig = context.application.bot_data["cfg"]
     allow = set(cfg.telegram.weekly_allowlist_user_ids or [])
     uid = update.effective_user.id if update.effective_user else None

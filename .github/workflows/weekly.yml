@@ -20,11 +20,15 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: Restore SQLite state cache
         uses: actions/cache@v4
         with:
           path: data/state.sqlite3
-          key: state-sqlite-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
+          key: state-sqlite-${{ runner.os }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}
           restore-keys: |
             state-sqlite-${{ runner.os }}-${{ github.ref_name }}-
 

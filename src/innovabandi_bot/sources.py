@@ -560,9 +560,23 @@ def _month_dirs(now: datetime) -> list[tuple[int, int]]:
     return [(y, m), (y, m - 1)]
 
 
+_GURS_ISSUE_RE = re.compile(r"PI_0*(\d+)_\d{4}|GURS_0*(\d+)_\d{4}")
+
+
+def gurs_issue_from_url(url: str) -> Optional[int]:
+    """Estrae il numero di fascicolo GURS dall'URL di un PDF, o None se non trovato."""
+    m = _GURS_ISSUE_RE.search(url or "")
+    if not m:
+        return None
+    return int(m.group(1) or m.group(2))
+
+
 async def fetch_gurs_pdf(source: Source, httpc: HttpClient, now: datetime, last_seen_issue: Optional[int]) -> list[Item]:
     year = now.year
-    probe = list(range(1, 21)) if last_seen_issue is None else list(range(last_seen_issue + 1, last_seen_issue + 13))
+    # Quando non conosciamo l'ultimo fascicolo visto, limitiamo il probe a 8 numeri
+    # (GURS esce ~settimanalmente: 8 fascicoli ≈ 2 mesi, più che sufficiente per il primo run).
+    # Dopo il primo run runner.py aggiorna last_seen_issue e il probe diventa 12 avanti.
+    probe = list(range(1, 9)) if last_seen_issue is None else list(range(last_seen_issue + 1, last_seen_issue + 13))
     dirs = _month_dirs(now)
 
     existing_urls: list[str] = []
