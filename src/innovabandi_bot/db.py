@@ -224,6 +224,23 @@ class Database:
         )
         return await cur.fetchall()
 
+    async def already_ran_today(self, *, kind: str, chat_id: int, local_date: str) -> bool:
+        """
+        Restituisce True se esiste già un run `kind` completato nella data locale indicata
+        (YYYY-MM-DD) per il chat_id. Usato per idempotency: più cron UTC (DST) potrebbero
+        matchare la finestra di time-guard; senza questo check si rischia doppio invio.
+        """
+        cur = await self.conn.execute(
+            """
+            SELECT 1 FROM runs
+            WHERE kind = ? AND chat_id = ?
+              AND date(finished_at) = ?
+            LIMIT 1
+            """,
+            (kind, chat_id, local_date),
+        )
+        return (await cur.fetchone()) is not None
+
     async def list_last_run(self, chat_id: int) -> Optional[aiosqlite.Row]:
         cur = await self.conn.execute(
             "SELECT * FROM runs WHERE chat_id=? ORDER BY run_id DESC LIMIT 1",

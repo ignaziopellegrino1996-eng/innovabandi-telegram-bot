@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import logging
 import os
+from datetime import datetime
 
 from innovabandi_bot.config import load_config, load_sources
 from innovabandi_bot.db import Database
@@ -73,11 +74,26 @@ async def _main_async() -> int:
                 for chat_id in chat_ids:
                     await db.ensure_chat(chat_id, default_mode=cfg.modes.default_mode)
 
+                # Idempotency: evita doppio invio se il cron “gemello” (DST) rientra nella
+                # finestra di tolleranza dopo che un run dello stesso kind è già andato a buon fine oggi.
+                kind = "weekly" if args.weekly_once else "daily"
+                today_local = datetime.now(cfg.tz()).date().isoformat()
+
                 if args.weekly_once:
                     for chat_id in chat_ids:
+                        if await db.already_ran_today(kind=kind, chat_id=chat_id, local_date=today_local):
+                            logging.getLogger("run").info(
+                                "Skip %s chat_id=%s: già eseguito oggi (%s).", kind, chat_id, today_local
+                            )
+                            continue
                         await run_weekly_report_once(cfg, srcs, db, http, chat_id, mode_override=mode_override)
                 else:
                     for chat_id in chat_ids:
+                        if await db.already_ran_today(kind=kind, chat_id=chat_id, local_date=today_local):
+                            logging.getLogger("run").info(
+                                "Skip %s chat_id=%s: già eseguito oggi (%s).", kind, chat_id, today_local
+                            )
+                            continue
                         await run_daily_check_once(cfg, srcs, db, http, chat_id, mode_override=mode_override)
 
                 return 0
